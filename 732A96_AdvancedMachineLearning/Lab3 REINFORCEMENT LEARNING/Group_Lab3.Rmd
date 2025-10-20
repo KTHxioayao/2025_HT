@@ -1,0 +1,561 @@
+---
+title: 'LAB 3: Reinforcement Learning'
+author: 
+  - xiali125@student.liu.se
+  - linfr259@student.liu.se
+  - qinzh916@student.liu.se
+  - huali824@student.liu.se
+  - qincu578@student.liu.se
+date: "2025-10-05"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---    
+    
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+# Complete the implementation of Q-Learning
+
+## 1. `GreedyPolicy` Function
+
+Its goal is to select the action `a` that maximizes the Q value for a given state `s`.
+
+The policy $\pi(s)$ is defined as the action `a` that maximizes the Q value:
+
+$$ \pi(s) = \underset{a \in A}{\arg\max} \, Q(s, a) $$
+
+
+```{r echo=TRUE, eval=FALSE}
+GreedyPolicy <- function(x, y){
+  
+  foo <- which(q_table[x,y,] == max(q_table[x,y,]))
+  return (ifelse(length(foo)>1,sample(foo, size = 1),foo))
+  
+}
+```
+
+
+## 2. `EpsilonGreedyPolicy` Function
+
+$\boldsymbol{\epsilon}$-Greedy "exploitation" (taking the best action) and "exploration" (trying random actions).
+
+The action $a_t$ chosen at time `t` :
+
+$$
+a_t =
+\begin{cases}
+  \text{random action from } A & \text{with prob } \epsilon \\
+  \underset{a \in A}{\arg\max} \, Q(s_t, a) & \text{with prob } 1 - \epsilon
+\end{cases}
+$$
+
+-   probability of exploring $\epsilon$ is between 0 and 1
+
+```{r echo=TRUE, eval=FALSE}
+EpsilonGreedyPolicy <- function(x, y, epsilon){
+  
+  if (runif(1) < epsilon) {
+    return(sample(1:4, 1))
+  } else {
+    return(GreedyPolicy(x, y))
+  }
+}
+```
+
+
+### 3 `Transition Model` Function
+
+The agent intends to perform an action, but with probability $\beta$, it "slips" to the side.
+
+Given the intended action $a_{intended}$, the probability of the actual action $a_{actual}$ is:
+
+$$
+P(a_{actual} | a_{intended}) =
+\begin{cases}
+  1 - \beta & \text{ no slip} \\
+  \beta / 2 & \text{ left of } a_{intended} \\
+  \beta / 2 & \text{ right of } a_{intended}
+\end{cases}
+$$
+
+The next state `s'` is then determined by the actual action taken: `s'`.
+
+```{r echo=TRUE, eval=FALSE}
+transition_model <- function(x, y, action, beta){
+  delta <- sample(-1:1, size = 1, prob =c(0.5*beta,1-beta,0.5*beta))
+  final_action <- ((action + delta + 3) %% 4) + 1
+  foo <- c(x,y) + unlist(action_deltas[final_action])
+  foo <- pmax(c(1,1),pmin(foo,c(H,W)))
+  
+  return (foo)
+}
+```
+
+## 4 `Q learning` Function
+
+Bellman equation update rule for Q Learning:
+
+$$ Q(s_t, a_t) \leftarrow Q(s_t, a_t) + \alpha \left[ \underbrace{r_{t+1} + \gamma \max_{a} Q(s_{t+1}, a)}_{\text{TD Target}} - \underbrace{Q(s_t, a_t)}_{\text{Old Value}} \right] $$
+
+```{r echo=TRUE, eval=FALSE}
+q_learning <- function(...){
+  current_state <- start_state
+  correction <- 0
+  
+  repeat{
+    # Follow policy, execute action, get reward.
+    x <- current_state[1]
+    y <- current_state[2]
+    
+    action <- EpsilonGreedyPolicy(x, y, epsilon)
+    next_state <- transition_model(x, y, action, beta)
+    reward <- reward_map[next_state[1], next_state[2]]
+    
+    # Q-table update.
+    old_q_value <- q_table[x, y, action]
+    
+    if (reward != 0) {
+      max_q_next = 0
+    } else {
+      max_q_next = max(q_table[next_state[1], next_state[2], ])
+    }
+    
+    td_error <- reward + gamma * max_q_next - old_q_value
+    q_table[x, y, action] <<- old_q_value + alpha * td_error
+    
+    correction <- correction + td_error
+    
+    current_state <- next_state
+    
+    if (reward!=0){
+      # End episode.
+      return (c(reward = reward, correction = correction))
+    }
+     
+  }
+}
+```
+
+# Environment A
+
+**Grid**: `5 x 7` grid
+
+**Reward**: a reward of `10` at state (3,6), and a penalty of `-1` at
+states (2,3), (3,3), and (4,3).All other states are `0`.
+
+**Start State**: every episode, initial position is `(3, 1)`.
+
+**Q-table** dimensions `5 x 7 x 4`.
+
+**Initialization**: The Q-table is initialized with all values set to `0`.
+
+**Parameters**:The agent is trained over 10,000 episodes using the following: $\epsilon = 0.5$, $\beta = 0$, $\alpha = 0.1$, and $\gamma = 0.95$
+
+
+```{r, echo=FALSE}
+
+set.seed(12345) 
+
+arrows <- c("^", ">", "v", "<")
+action_deltas <- list(c(1,0), # up
+                      c(0,1), # right
+                      c(-1,0), # down
+                      c(0,-1)) # left
+
+vis_environment <- function(iterations=0, epsilon = 0.5, alpha = 0.1, gamma = 0.95, beta = 0){
+  
+  
+
+  df <- expand.grid(x=1:H,y=1:W)
+  foo <- mapply(function(x,y) ifelse(reward_map[x,y] == 0,q_table[x,y,1],NA),df$x,df$y)
+  df$val1 <- as.vector(round(foo, 2))
+  foo <- mapply(function(x,y) ifelse(reward_map[x,y] == 0,q_table[x,y,2],NA),df$x,df$y)
+  df$val2 <- as.vector(round(foo, 2))
+  foo <- mapply(function(x,y) ifelse(reward_map[x,y] == 0,q_table[x,y,3],NA),df$x,df$y)
+  df$val3 <- as.vector(round(foo, 2))
+  foo <- mapply(function(x,y) ifelse(reward_map[x,y] == 0,q_table[x,y,4],NA),df$x,df$y)
+  df$val4 <- as.vector(round(foo, 2))
+  foo <- mapply(function(x,y) 
+    ifelse(reward_map[x,y] == 0,arrows[GreedyPolicy(x,y)],reward_map[x,y]),df$x,df$y)
+  df$val5 <- as.vector(foo)
+  foo <- mapply(function(x,y) ifelse(reward_map[x,y] == 0,max(q_table[x,y,]),
+                                     ifelse(reward_map[x,y]<0,NA,reward_map[x,y])),df$x,df$y)
+  df$val6 <- as.vector(foo)
+  
+  print(ggplot(df,aes(x = y,y = x)) +
+          scale_fill_gradient(low = "white", high = "green", na.value = "red", name = "") +
+          geom_tile(aes(fill=val6)) +
+          geom_text(aes(label = val1),size = 4,nudge_y = .35,na.rm = TRUE) +
+          geom_text(aes(label = val2),size = 4,nudge_x = .35,na.rm = TRUE) +
+          geom_text(aes(label = val3),size = 4,nudge_y = -.35,na.rm = TRUE) +
+          geom_text(aes(label = val4),size = 4,nudge_x = -.35,na.rm = TRUE) +
+          geom_text(aes(label = val5),size = 10) +
+          geom_tile(fill = 'transparent', colour = 'black') + 
+          ggtitle(paste("Q-table after ",iterations," iterations\n",
+                        "(epsilon = ",epsilon,", alpha = ",alpha,"gamma = ",gamma,", beta = ",beta,")")) +
+          theme(plot.title = element_text(hjust = 0.5)) +
+          scale_x_continuous(breaks = c(1:W),labels = c(1:W)) +
+          scale_y_continuous(breaks = c(1:H),labels = c(1:H)))
+  
+}
+
+GreedyPolicy <- function(x, y){
+  
+  foo <- which(q_table[x,y,] == max(q_table[x,y,]))
+  return (ifelse(length(foo)>1,sample(foo, size = 1),foo))
+  
+}
+
+EpsilonGreedyPolicy <- function(x, y, epsilon){
+  
+  
+  if (runif(1) < epsilon) { 
+    return(sample(1:4, 1))
+  } else { 
+    return(GreedyPolicy(x, y))
+  }
+  
+}
+
+transition_model <- function(x, y, action, beta){
+  
+  
+  delta <- sample(-1:1, size = 1, prob = c(0.5*beta,1-beta,0.5*beta))
+  final_action <- ((action + delta + 3) %% 4) + 1
+  foo <- c(x,y) + unlist(action_deltas[final_action])
+  foo <- pmax(c(1,1),pmin(foo,c(H,W)))
+  
+  return (foo)
+}
+
+q_learning <- function(start_state, epsilon = 0.5, alpha = 0.1, gamma = 0.95, 
+                       beta = 0){
+  
+  
+  current_state <- start_state
+  episode_correction <- 0
+  
+  repeat{
+    # Follow policy, execute action, get reward.
+    x <- current_state[1]
+    y <- current_state[2]
+    
+    action <- EpsilonGreedyPolicy(x, y, epsilon)
+    next_state <- transition_model(x, y, action, beta)
+    reward <- reward_map[next_state[1], next_state[2]]
+    
+    # Q-table update.
+    old_q_value <- q_table[x, y, action]
+    
+    if (reward != 0) {
+      max_q_next = 0
+    } else {
+      max_q_next = max(q_table[next_state[1], next_state[2], ])
+    }
+    
+    td_error <- reward + gamma * max_q_next - old_q_value
+    q_table[x, y, action] <<- old_q_value + alpha * td_error
+   
+    episode_correction <- episode_correction + td_error
+    
+    current_state <- next_state
+    
+    if(reward!=0)
+      # End episode.
+      return (c(reward,episode_correction))
+  }
+  
+}
+
+
+
+# Environment A (learning)
+
+H <- 5
+W <- 7
+
+reward_map <- matrix(0, nrow = H, ncol = W)
+reward_map[3,6] <- 10
+reward_map[2:4,3] <- -1
+
+q_table <- array(0,dim = c(H,W,4))
+
+vis_environment()
+
+for(i in 1:10000){
+  foo <- q_learning(start_state = c(3,1))
+  
+  if(any(i==c(10,100,1000,10000)))
+    vis_environment(i)
+}
+
+```
+
+## Question 1. What has the agent learned after the first 10 episodes ?
+
+After 10 iterations, the agent has learned very little. The Q-table remains mostly zeros, indicating minimal exploration of the environment. The only knowledge acquired so far is a rudimentary avoidance of penalty areas . The agent has not yet discovered the +10 reward zone. At this early stage, the greedy policy is unreliable and appears almost random, as the agent has only explored a limited portion of the state space.
+
+## Question 2. Is the final greedy policy (after 10000 episodes) optimal for all states, i.e. not only for the initial state ? Why / Why not ?
+
+Although after 10,000 iterations the agent clearly knows how to avoid the red penalty zones and efficiently navigate toward the green reward area, it has found a very good policy but not yet an optimal one. 
+
+For example, at positions (5,3), the agent should turn right directly toward the target location.
+
+The primary reasons the agent failed to find the optimal are:
+Insufficient Training Episodes (10,000): Given the high exploration rate, the limited number of episodes provides insufficient experience for the successful, long-term optimal path to be consistently reinforced.
+
+## Question 3. Do the learned values in the Q-table reflect the fact that there are multiple paths(above and below the negative rewards) to get to the positive reward ? If not, what could be done to make it happen ?
+
+The Q-table has captured the lower optimal path, but the path above the negative rewards has not been well captured.
+
+`Lower Path (rows 1-2):` Q-values (max Q per state) increase smoothly: 7.35 → 7.74 → 8.15 → 8.57 → 9.02.
+
+`Upper Path (rows 4-5):` No clear gradient due to insufficient exploration and convergence: 5.99 → 6.3 → 5.88 (drop) → 8.26 (sudden jump) → 7.98.
+
+The main reasons the agent failed to find the Upper Path are likely:Insufficient Iterations: The limited number of training steps (10,000) is insufficient to effectively reinforce the long, optimal path.
+
+# Environment B
+
+**Grid**: `7 x 8` grid
+
+**Reward**: Negative rewards for states in the top and bottom rows. Two positive rewards: +5 (easily
+reachable) and +10 (requires navigating around the first reward)
+
+**Start State**: every episode, initial position is `(4, 1)`.
+
+**Q-table** dimensions `7 x 8 x 4`.
+
+**Initialization**: The Q-table is initialized with all values set to `0`.
+
+**Parameters**:The agent is trained over 30,000 episodes using the following: $\epsilon \in \{0.1, 0.5\}$, $\gamma \in \{0.5, 0.75, 0.95\}$, $\beta = 0$, and $\alpha = 0.1$
+
+```{r, echo=FALSE}
+# Environment B (the effect of epsilon and gamma)
+
+H <- 7
+W <- 8
+
+reward_map <- matrix(0, nrow = H, ncol = W)
+reward_map[1,] <- -1
+reward_map[7,] <- -1
+reward_map[4,5] <- 5
+reward_map[4,8] <- 10
+
+q_table <- array(0,dim = c(H,W,4))
+
+vis_environment()
+
+MovingAverage <- function(x, n){
+  
+  cx <- c(0,cumsum(x))
+  rsum <- (cx[(n+1):length(cx)] - cx[1:(length(cx) - n)]) / n
+  
+  return (rsum)
+}
+
+for(j in c(0.5,0.75,0.95)){
+  q_table <- array(0,dim = c(H,W,4))
+  reward <- NULL
+  correction <- NULL
+  
+  for(i in 1:30000){
+    foo <- q_learning(gamma = j, start_state = c(4,1))
+    reward <- c(reward,foo[1])
+    correction <- c(correction,foo[2])
+  }
+  
+  vis_environment(i, gamma = j)
+  plot(MovingAverage(reward,100),type = "l")
+  plot(MovingAverage(correction,100),type = "l")
+}
+
+for(j in c(0.5,0.75,0.95)){
+  q_table <- array(0,dim = c(H,W,4))
+  reward <- NULL
+  correction <- NULL
+  
+  for(i in 1:30000){
+    foo <- q_learning(epsilon = 0.1, gamma = j, start_state = c(4,1))
+    reward <- c(reward,foo[1])
+    correction <- c(correction,foo[2])
+  }
+  
+  vis_environment(i, epsilon = 0.1, gamma = j)
+  plot(MovingAverage(reward,100),type = "l")
+  plot(MovingAverage(correction,100),type = "l")
+}
+
+```
+
+### Investigate how $\epsilon$ and $\gamma$ affect Q-learning policy
+
+$\epsilon \in \{0.1, 0.5\}$, $\gamma \in \{0.5, 0.75, 0.95\}$, $\beta = 0$, and $\alpha = 0.1$
+
+#### Impact of discount factor:
+
+$\gamma$ = 0.5: Agent is short-sighted, prefers nearby +5 reward (return = 2.5) over distant +10 (return = 0.625)
+
+$\gamma$ = 0.75: Agent begins favoring +10, showing increased foresight
+
+$\gamma$ = 0.95: Agent strongly prefers +10, with high Q-values propagating across long distances
+
+#### Impact of exploration rate:
+
+$\epsilon$ = 0.5: High exploration causes reward fluctuations (between 4-7), prevents convergence despite learning correct policy
+
+$\epsilon$ = 0.1: Low exploration produces stable rewards but risks:
+
+`Large unexplored areas` (Q-values remain zero)
+
+`Local optima traps` ($\gamma$ = 0.75case: agent switches from +10 to +5 strategy around iteration 15,000)
+
+#### Optimal combination: 
+$\epsilon$ = 0.1, $\gamma$ = 0.95
+
+Agent discovers and maintains optimal +10 strategy throughout training
+
+Reward consistently between 7-9
+
+Q-values form clear gradient toward +10 
+
+#### TD Error patterns: 
+All experiments show large initial correction peaks when discovering rewards, followed by rapid convergence near zero, indicating successful Q-value stabilization.
+
+
+# Environment C
+
+**Grid**: `3 x 6` grid
+
+**Reward**: +10 at state (1, 6)(terminal goal state). -1 at states (1, 2),(1, 3), (1, 4), and (1, 5)(also
+terminal states).
+
+**Start State**: every episode, initial position is `(1, 1)`.
+
+**Q-table** dimensions `3 x 6 x 4`.
+
+**Initialization**: The Q-table is initialized with all values set to `0`.
+
+**Parameters**:The agent is trained over 10,000 episodes using the following: $\epsilon = 0.5$, $\alpha = 0.1$, $\gamma = 0.6$, $\beta = 0, 0.2, 0.4, 0.66$
+
+```{r, echo=FALSE}
+
+# Environment C (the effect of beta).
+
+H <- 3
+W <- 6
+
+reward_map <- matrix(0, nrow = H, ncol = W)
+reward_map[1,2:5] <- -1
+reward_map[1,6] <- 10
+
+q_table <- array(0,dim = c(H,W,4))
+
+vis_environment()
+
+for(j in c(0,0.2,0.4,0.66)){
+  q_table <- array(0,dim = c(H,W,4))
+  
+  for(i in 1:10000)
+    foo <- q_learning(gamma = 0.6, beta = j, start_state = c(1,1))
+  
+  vis_environment(i, gamma = 0.6, beta = j)
+}
+
+```
+
+The $\beta$ controls the randomness of the environment: $\beta = 0$ means the agent’s movement always matches expectation, while higher $\beta$ values increase the probability that the agent will slip to the side when moving.
+
+### Investigate how $\beta$ affect Q-learning policy
+
+$\epsilon = 0.5$, $\alpha = 0.1$, $\gamma = 0.6$, $\beta = 0, 0.2, 0.4, 0.66$
+
+#### $\beta = 0$ (Deterministic environment):
+
+Agent learns the shortest path along row 2 (edge of penalty zone)
+No slipping risk, so moving close to penalties is safe
+
+#### $\beta = 0.2$ and $\beta = 0.4$(Increasing stochasticity):
+
+Policy becomes more conservative
+
+At $\beta = 0.2$: Agent begins preferring upward movement away from penalties.
+
+At $\beta = 0.4$: Agent moves to safest row 3 early, then travels right
+
+
+#### $\beta = 0.66$ (High stochasticity):
+
+
+Agent moves to row 3 immediately.
+
+Agent prioritizes safety over path length, choosing the longest but safest route.
+Equal slip probability in all directions makes row 2 too risky
+
+Conclusion:
+The Q-learning agent adapts its policy to environmental uncertainty. As uncertainty increases, the learned policy shifts from optimal shortest-path to conservative strategies.
+
+
+# Environment D
+
+
+## Has the agent learned a good policy? Why / Why not ?
+
+The results for 8 different training goals after 5,000 episodes are presented in Figure 7. It successfully reaches validation goals that were not encountered during training, demonstrating that it has acquired a generalizable strategy for reaching targets rather than merely memorizing specific paths.
+
+```{r, out.width="25%", fig.show="hold", echo=FALSE}
+knitr::include_graphics("5000p_1.png")
+knitr::include_graphics("5000p_2.png")
+knitr::include_graphics("5000p_3.png")
+knitr::include_graphics("5000p_4.png")
+knitr::include_graphics("5000p_5.png")
+knitr::include_graphics("5000p_6.png")
+knitr::include_graphics("5000p_7.png")
+knitr::include_graphics("5000p_8.png")
+```
+\begin{center}
+Figure 8. Train results after 5000 episodes with 8 goals
+\end{center}
+
+
+## Could you have used the Q-learning algorithm to solve this task ?
+
+Not really. The Q-learning algorithm can learn a policy for a fixed goal location, but it cannot generalize to new, unseen goals. Each agent–goal pair is treated as a separate state with its own Q-values, so knowledge cannot transfer between goals. In contrast, the REINFORCE approach parameterizes the policy with a neural network, which learns a general strategy for reaching targets rather than memorizing actions for one specific goal.
+
+# Environment E
+## Has the agent learned a good policy? Why / Why not ?
+
+
+The results for three different training goals after 5,000 episodes are shown in Figure 8. The learned policy remains clearly suboptimal, with most arrows pointing in the same direction. This outcome is mainly due to the biased training setup: all training goals were located in the top row. As a result, the policy learned an oversimplified pattern that fails to generalize to validation goals, which are more uniformly distributed across the grid.
+
+```{r, out.width="33%", fig.show="hold", echo=FALSE, fig.pos='H'}
+knitr::include_graphics("5000p_n1.png")
+knitr::include_graphics("5000p_n2.png")
+knitr::include_graphics("5000p_n3.png")
+
+```
+
+
+\begin{center}
+Figure 9. Train Results After 5000 Episodes With 6 goals 
+\end{center}
+
+## If the results obtained for environments D and E differ, explain why.
+
+The difference between environments D and E arises primarily from the diversity of training goals. In Environment D, the agent was exposed to goals distributed across the entire grid, enabling the policy network to learn a general mapping from state and goal coordinates to actions. This diversity supports robust generalization to unseen validation goals. 
+
+In contrast, Environment E restricted all training goals to the top row, which biased the data and led the agent to learn an oversimplified rule. As a result, the policy failed to transfer effectively to validation goals located elsewhere in the grid.
+
+# Contribution
+
+This report was completed through the joint efforts of team members: Xiaochen, Linn, Qinxia, Qingxuan and Huaide.
+We collectively tackled the core concepts of Hidden Markov Models through group discussions, coded and
+debugged the R script as a team, and analyzed the experimental results together. The writing and final
+review of this document were also a result of our collaborative work, ensuring the consistency and quality
+of the final report.
+
+
+
+
